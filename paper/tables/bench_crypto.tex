@@ -1,0 +1,23 @@
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lccccrr}
+\toprule
+Leakage pattern & \textsc{tni} & lint & unit & ASOF & Sharpe$^\dagger$ & honest \\
+\midrule
+close-to-open & \cmark & \xmark & \cmark & \xmark & $+15.89$ & $-0.39$ \\
+target-leakage & \cmark & \cmark & \cmark & \xmark & $+15.89$ & $-0.39$ \\
+full-sample-zscore & \cmark & \xmark & \xmark & \xmark & $-0.22$ & $-0.01$ \\
+centered-rolling & \cmark & \cmark & \xmark & \xmark & $+3.22$ & $+0.24$ \\
+winsorize-full-sample & \cmark & \xmark & \xmark & \xmark & $-0.39$ & $-0.40$ \\
+shuffled-kfold-cv & \cmark & \cmark & \xmark & \xmark & $+0.02$ & $-0.39$ \\
+resampling-lookahead & \cmark & \xmark & \xmark & \cmark & $+4.23$ & $+0.12$ \\
+global-feature-selection & \cmark & \xmark & \xmark & \xmark & $+0.12$ & $-0.62$ \\
+publication-lag & \cmark & \xmark & \xmark & \cmark & $+0.17$ & $+0.06$ \\
+panel-zscore & \cmark & \xmark & \xmark & \xmark & $+0.48$ & $+0.41$ \\
+survivorship-universe & \cmark & \xmark & \xmark & \cmark & $+0.41$ & $+0.15$ \\
+target-leakage-panel & \cmark & \cmark & \cmark & \xmark & $+20.28$ & $+0.41$ \\
+\bottomrule
+\end{tabular}
+\caption{Leakage benchmark on crypto (8 pairs, daily).}
+\label{tab:bench-crypto}
+\end{table}

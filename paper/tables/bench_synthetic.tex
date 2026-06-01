@@ -1,0 +1,23 @@
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lccccrr}
+\toprule
+Leakage pattern & \textsc{tni} & lint & unit & ASOF & Sharpe$^\dagger$ & honest \\
+\midrule
+close-to-open & \cmark & \xmark & \cmark & \xmark & $+22.03$ & $+0.65$ \\
+target-leakage & \cmark & \cmark & \cmark & \xmark & $+22.03$ & $+0.65$ \\
+full-sample-zscore & \cmark & \xmark & \xmark & \xmark & $+0.16$ & $+0.08$ \\
+centered-rolling & \cmark & \cmark & \xmark & \xmark & $+4.58$ & $+0.26$ \\
+winsorize-full-sample & \cmark & \xmark & \xmark & \xmark & $+0.65$ & $+0.65$ \\
+shuffled-kfold-cv & \cmark & \cmark & \xmark & \xmark & $+0.86$ & $+0.93$ \\
+resampling-lookahead & \cmark & \xmark & \xmark & \cmark & $+4.52$ & $+0.79$ \\
+global-feature-selection & \cmark & \xmark & \xmark & \xmark & $+0.30$ & $+0.25$ \\
+publication-lag & \cmark & \xmark & \xmark & \cmark & $+0.32$ & $+0.57$ \\
+panel-zscore & \cmark & \xmark & \xmark & \xmark & $+0.19$ & $+0.15$ \\
+survivorship-universe & \cmark & \xmark & \xmark & \cmark & $+1.40$ & $+0.24$ \\
+target-leakage-panel & \cmark & \cmark & \cmark & \xmark & $+119.28$ & $+0.15$ \\
+\bottomrule
+\end{tabular}
+\caption{Leakage benchmark on seeded synthetic data with genuine predictable structure. $\dagger$: in-sample Sharpe the buggy pipeline would report if undetected.}
+\label{tab:bench-synth}
+\end{table}

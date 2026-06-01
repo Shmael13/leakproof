@@ -1,0 +1,386 @@
+\documentclass[11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+
+% --- table marks -----------------------------------------------------------
+\newcommand{\cmark}{\textcolor{black}{\checkmark}}
+\newcommand{\xmark}{\textcolor{gray}{--}}
+\newcommand{\tni}{\textsc{tni}}
+\newcommand{\lt}{$\lambda_{\text{time}}$}
+
+% --- theorem environments --------------------------------------------------
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+
+% --- listings --------------------------------------------------------------
+\definecolor{kw}{rgb}{0.1,0.1,0.6}
+\definecolor{cmt}{rgb}{0.3,0.5,0.3}
+\lstdefinestyle{py}{
+  basicstyle=\ttfamily\small, keywordstyle=\color{kw}, commentstyle=\color{cmt},
+  language=Python, showstringspaces=false, breaklines=true, frame=single,
+  framesep=4pt, columns=fullflexible}
+\lstdefinestyle{plain}{basicstyle=\ttfamily\footnotesize, frame=single,
+  framesep=4pt, breaklines=true, columns=fullflexible}
+
+% --- numbers generated from the actual runs --------------------------------
+\input{macros.tex}
+
+\title{\textbf{Draft \# 2 \\ Temporal Non-Interference:\\ Making Look-Ahead Bias a Compile-Time Error\\ in Quantitative Research Pipelines}}
+\author{Ismail Syed\thanks{CHANGE THIS LATER NEED TO CHECK WHAT TO PUT HERE - ismailsyed2005@gmail.com}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Look-ahead bias---using information in a backtest that would not have been
+available at decision time---is the most common and most destructive defect in
+quantitative research: it produces spectacular in-sample results that evaporate
+in live trading. Today it is fought with discipline (code review, point-in-time
+databases, purged cross-validation); discipline does not scale and offers no
+guarantee. We recast look-ahead bias as a \emph{type-safety} problem. We adapt
+information-flow control---the non-interference type systems built for
+security---to the \emph{time axis}: every value carries the time at which its
+information first becomes \emph{available}, labels form the lattice
+$(\mathbb{T},\le)$ with $\text{join}=\max$, and a pipeline is rejected unless
+every decision dated $t$ depends only on information available by $t$. We define
+\emph{temporal non-interference} and prove that a well-typed pipeline satisfies
+it (a future input cannot change a past decision). We implement the calculus as
+an embedded DSL, \tni, and evaluate it: a property-based ``perturb-the-future''
+oracle finds \textbf{\honeViol{} soundness violations across \honeTotal{} random
+pipelines}; a \benchN-pattern leakage benchmark on synthetic and real (equities,
+crypto) data is caught \textbf{\benchTni/\benchN} while ordinary linters, unit
+tests, and feature-store ASOF discipline each catch only 3--4 and miss
+\benchMissed{} patterns entirely; and three realistic strategies type-check with
+1--2 trusted annotations each and zero false positives. A single property
+unifies look-ahead bias, full-sample preprocessing, survivorship, and improper
+cross-validation as instances of the same violation.
+\end{abstract}
+
+\section{Introduction}
+
+A quantitative strategy is a function from market history to positions. It has
+look-ahead bias (a.k.a.\ temporal data leakage) when a position dated $t$ depends
+on data that was not knowable until after $t$. The symptom is universal and
+catastrophic: an inflated backtest that does not reproduce live. The disguises
+are many---trading at the open on the same day's close; standardizing features
+with full-sample statistics; centered moving averages; targets that leak into
+features; universes defined by who survived to today; shuffled $K$-fold on time
+series; fundamentals stamped at report-period-end rather than publication date.
+
+The prevailing defense is \emph{vigilance}: checklists, review, point-in-time
+data engineering, purged and embargoed cross-validation. This is the same posture
+the systems community once took toward memory safety (``be careful with
+pointers''), and it fails for the same reason: it does not scale and provides no
+guarantee. Memory safety was not solved by discipline but by \emph{type
+systems}. Our thesis is that look-ahead bias is likewise a type-safety problem.
+
+\paragraph{Contributions.}
+\begin{enumerate}\itemsep2pt
+  \item A formal core calculus, \lt, that instantiates information-flow control
+    on the time lattice, with availability-transfer rules for the operators that
+    cause real leaks (\S\ref{sec:calculus}).
+  \item A definition of \emph{temporal non-interference} and a soundness
+    theorem: well-typed $\Rightarrow$ a future input cannot change a past
+    decision (\S\ref{sec:theory}).
+  \item \tni, an embedded-DSL realization with compiler-quality diagnostics,
+    plus an unsound AST linter for legacy code (\S\ref{sec:system}).
+  \item An evaluation establishing soundness empirically (H1), expressiveness
+    (H2), and utility against baselines on real markets (H3), with quantified
+    Sharpe inflation (\S\ref{sec:eval-h1h2}--\ref{sec:eval-h3}).
+\end{enumerate}
+
+\section{Background and the gap}\label{sec:background}
+
+\paragraph{Information-flow control (IFC).}
+Classic IFC assigns each value a label from a security lattice
+\citep{denning1976lattice} and proves \emph{non-interference}
+\citep{goguen1982security}: secret (\textsf{High}) inputs cannot influence
+public (\textsf{Low}) outputs. Enforcement is a type system; the result of an
+operation takes the join of its operands' labels; the guarantee is a soundness
+theorem \citep{volpano1996sound}. Some downgrades are unavoidable and handled by
+explicit, audited \emph{declassification} \citep{sabelfeld2003language}.
+
+\paragraph{Point-in-time practice (finance).}
+Practitioners fight leakage with point-in-time (bitemporal) databases,
+feature-store ASOF joins \citep{feast}, walk-forward protocols and backtesting
+hygiene \citep{arnott2019backtesting}, purged and embargoed cross-validation
+\citep{lopezdeprado2018advances}, and time-ordered evaluation
+\citep{bergmeir2012use}. These are methodologies and data-engineering
+disciplines, not language-level static guarantees.
+
+\paragraph{The gap.}
+The two halves exist; their synthesis does not. IFC labels are always
+\emph{secrecy}; temporal type systems in PL concern \emph{calendar/date
+representation} \citep{bry2005catts,tc39temporal}, not information
+\emph{availability}. No prior work treats time as the information-flow lattice
+and look-ahead bias as a non-interference violation caught statically.
+Table~\ref{tab:mapping} states the correspondence we exploit.
+
+\begin{table}[t]\centering\small
+\begin{tabular}{ll}
+\toprule
+Information-flow control & Temporal non-interference (this work) \\
+\midrule
+Label $=$ secrecy level & Label $=$ \textbf{availability time} \\
+Lattice $\{\textsf{Low}\sqsubseteq\textsf{High}\}$ & Lattice $(\mathbb{T},\le)$, $\text{join}=\max$ \\
+``Secret must not flow to public'' & ``\textbf{Future must not flow to a past decision}'' \\
+Declassification (audited) & Publication-lag / availability assertion (audited) \\
+Non-interference theorem & \textbf{Temporal non-interference theorem} \\
+\bottomrule
+\end{tabular}
+\caption{Information-flow control, reinterpreted on the time axis.}
+\label{tab:mapping}
+\end{table}
+
+\section{The \lt{} calculus}\label{sec:calculus}
+
+\paragraph{Time and labels.}
+Let $(\mathbb{T},\le)$ be a totally ordered set of timestamps, extended with
+$\bot=-\infty$ (``always available,'' for constants) and $\top=+\infty$ (``never
+available in-sample''). It is a lattice with $\text{join}=\max$, $\text{meet}=\min$;
+\emph{later time $=$ more restricted}, mirroring \emph{more secret}. A value's
+\emph{availability label} is the earliest time its information is fully
+determined. For time-indexed values the label is a per-row function
+$A:\mathbb{T}\to\mathbb{T}\cup\{\top\}$; a clean, strictly backward-looking
+series satisfies $A(s)=s$.
+
+\paragraph{The legality condition.}
+A pipeline emits a position series $Z$. The single obligation is
+\[
+\forall s:\quad A_Z(s)\ \le\ s-\delta_{\text{exec}},
+\]
+where $\delta_{\text{exec}}\ge 0$ is an execution lag ($\delta_{\text{exec}}=1$
+models ``signal at close, trade next bar'').
+
+\paragraph{Transfer rules (excerpt).}
+Each operator maps input labels to an output label.
+\begin{itemize}\itemsep1pt
+  \item \emph{Constant}: $\bot$. \emph{Raw observation with publication lag
+    $\delta$}: $A(t)=t+\delta$.
+  \item \emph{Elementwise op}: $A(s)=\bigsqcup$ of operands. \emph{Backward lag}
+    $\mathrm{lag}(X,k),k\ge 0$: safe. \emph{Forward lead}: $A(s)=A_X(s+k)>s$---the
+    canonical leak.
+  \item \emph{Backward rolling}: join over $[s-w+1,s]$ (clean $\Rightarrow s$,
+    safe). \emph{Centered/forward rolling}: window reaches $>s$---leak.
+  \item \emph{Full-sample reduction} (mean/std/quantile over all time): $\top$;
+    broadcasting it back and using it at $s$ leaks (full-sample normalization,
+    winsorization, global feature selection).
+  \item \emph{Resample labelled at period end}, used intraperiod:
+    $A(s)=\text{period\_end}>s$---leak.
+  \item \emph{Cross-sectional op at fixed $s$} (rank/z-score across assets): join
+    over that row only---safe; a \emph{panel-pooled} op over all (asset, time)
+    cells: $\top$---leak.
+  \item \emph{Model fit} on data with availabilities $\le\tau$: the model has
+    label $\tau$; predicting at $s$ requires $\tau\le s$. This recovers
+    walk-forward / purged CV as a typing constraint; shuffled $K$-fold gives a
+    model label at the sample end, leaking at every interior test point.
+  \item \emph{Universe/selection}: membership from data $\le s$ is safe;
+    membership referencing data $>s$ (``listed at $T_{\text{end}}$'') leaks
+    (survivorship).
+\end{itemize}
+
+\paragraph{Declassification (the trusted base).}
+Two primitives are the \emph{only} places trust is injected:
+\texttt{observe(stream, lag=$\delta$)} (a raw source's publication lag) and
+\texttt{available\_at($x,\tau$)} (assert an availability the calculus cannot
+derive, e.g.\ a per-row point-in-time date). Every assertion is recorded in an
+audit log; the trusted surface is small and enumerable.
+
+\section{Temporal non-interference}\label{sec:theory}
+
+Each input datum has a \emph{true} availability time; operators propagate both
+values and true availabilities.
+
+\begin{definition}[Temporal non-interference]
+A pipeline $P$ emitting $Z$ is temporally non-interferent iff for every $s$ and
+every pair of input datasets $D,D'$ that agree on all data with availability
+$\le s$ (but may differ arbitrarily on data available later), $Z_D(s)=Z_{D'}(s)$.
+\end{definition}
+
+\begin{theorem}[Soundness]
+If $P$ type-checks under \S\ref{sec:calculus} (so $A_Z(s)\le s$ for all $s$),
+then $P$ is temporally non-interferent.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+Induction on the typing derivation. Each transfer function is a monotone join, so
+the inferred label of any sub-value upper-bounds the true availability of every
+datum that influences it. The check $A_Z(s)\le s$ therefore guarantees only data
+with true availability $\le s$ influences $Z(s)$; since $D,D'$ agree there, the
+values are equal. This is the Volpano--Smith argument
+\citep{volpano1996sound} with the secrecy lattice replaced by
+$(\mathbb{T},\le)$.
+\end{proof}
+
+The theorem is validated empirically by the perturb-the-future test
+(\S\ref{sec:eval-h1h2}), which perturbs all future inputs and checks that no past
+decision moves.
+
+\section{The \textmd{\tni} system}\label{sec:system}
+
+\paragraph{Design: a hybrid.}
+A \emph{sound core} (the embedded DSL, which carries the theorem) plus a
+\emph{best-effort, explicitly unsound AST linter} for legacy code (which carries
+reach). They are cleanly separated: the theorem is a statement about the core
+only.
+
+\paragraph{Build $\to$ check $\to$ run.}
+The core evaluates eagerly---each operator computes values and availability
+labels at construction---but every node also retains its operands
+(\texttt{\_parents}) and operator name (\texttt{\_op}). We deliberately avoid a
+separate lazy graph; the retained provenance recovers the one thing a graph would
+buy: path-level diagnostics. The pipeline is still build $\to$ \textbf{check}
+(\texttt{to\_positions} asserts $A(s)\le s-\delta_{\text{exec}}$) $\to$ run (the
+backtest runs only after the check passes). \emph{Limitation:} labels are
+computed by executing the builder, so data-dependent control flow is not
+modelled; quant pipelines are overwhelmingly straight-line dataflow, and the
+perturb oracle is the independent check that the labels are sound regardless.
+
+\paragraph{Diagnostics.}
+On a violation, \tni{} reports the offending operator, decision time, inferred vs.\
+required label, and the dependency path, descending only through illegal operands
+and marking where future information enters:
+
+\begin{lstlisting}[style=plain]
+look-ahead bias: position at t=0 depends on information
+  available only at A=2 (required A <= 0)
+  dependency path (future -> decision):
+    sign: A(0)=2 (need <= 0)
+        roll_back3.mean: A(0)=2 (need <= 0)
+            shift(k=-2): A(0)=2 (need <= 0) <== future info enters here
+\end{lstlisting}
+
+Type-checking is cheap: the median check time over the benchmark pipelines is
+\checkMedianMs~ms, so it is a build-time gate, not a runtime cost.
+
+\paragraph{Unsound AST linter.}
+A syntactic pass over ordinary pandas/numpy/sklearn source flags red flags
+(negative \texttt{.shift()}, \texttt{rolling(center=True)}, a shuffled
+\texttt{KFold} or \texttt{train\_test\_split}, a scaler \texttt{fit\_transform},
+full-sample statistics in arithmetic). It is a bug-finder with false positives
+and negatives by design (\S\ref{sec:eval-h3}).
+
+\section{Evaluation: soundness (H1) and expressiveness (H2)}\label{sec:eval-h1h2}
+
+\paragraph{H1 --- soundness, empirically.}
+A generator builds random pipelines from safe and unsafe operators; the oracle
+perturbs every input with true availability $>s^\star$ and checks that no
+decision at $s\le s^\star$ changes. Over \textbf{\honeTotal{} random pipelines}:
+\textbf{\honeViol{} violations} (no pipeline both type-checks and depends on the
+future). The test is non-vacuous---\honeInterf{} generated pipelines genuinely
+interfere and the checker rejects every one. Two transfer-function bugs were
+found and fixed this way during development (rolling and cross-sectional joins
+must be taken over \emph{finite} contributors only).
+
+\paragraph{H2 --- expressiveness.}
+Three realistic, correct strategies, end-to-end on real data
+(Table~\ref{tab:h2}). All type-check (\textbf{zero false positives}) with 1--2
+trusted annotations each (declassifications \htwoDecl); every other label is
+inferred.
+
+\input{tables/h2.tex}
+
+\section{Evaluation: utility (H3) and applicability}\label{sec:eval-h3}
+
+\paragraph{The benchmark.}
+\benchN{} leakage patterns, each as a buggy/correct pair, run on
+synthetic-with-structure data (Table~\ref{tab:bench-synth}) and real equities
+(Table~\ref{tab:bench-eq}) and crypto (Table~\ref{tab:bench-crypto}). We report
+whether \tni{} rejects the buggy pipeline and accepts the correct one, and the
+in-sample Sharpe the buggy pipeline \emph{would} have reported had the leak
+slipped past review. Baselines: a syntactic \emph{linter}, a \emph{unit-test}
+Sharpe-sanity check ($|\text{Sharpe}|>5$), and \emph{ASOF}/point-in-time
+discipline.
+
+\input{tables/bench_synthetic.tex}
+
+\tni{} catches \textbf{\benchTni/\benchN}; the linter \benchLint/\benchN, the
+unit-test \benchUnit/\benchN, ASOF \benchAsof/\benchN. The same \benchTni/\benchN{}
+holds on equities and crypto. Crucially the baselines catch \emph{different}
+small subsets, so even their union misses \benchMissed{} patterns
+---\benchMissedList---that \tni{} rejects by construction. This is the rebuttal
+to ``isn't this just ASOF joins?'': ASOF discipline addresses timestamp
+alignment (publication-lag, survivorship, resampling) but is blind to full-sample
+statistical leakage and CV mistakes.
+
+\input{tables/bench_equities.tex}
+\input{tables/bench_crypto.tex}
+
+Two honest observations. (i) Not every leak inflates Sharpe on every dataset---
+full-sample standardization and winsorization barely move a sign-based signal's
+Sharpe; their harm is more in risk estimates. \tni{} rejects them regardless of
+whether they happen to pay off on a given sample. (ii) The dramatic numbers
+(close-to-open, target leakage) come from leaks that mechanically capture the
+realized return.
+
+\paragraph{Applicability (AST linter).}
+Over a curated corpus of representative scripts, the linter flags
+\textbf{\lintTP/\lintBuggy} buggy scripts and produces \lintFP{} false positive
+on a clean script: it flags a forward-shifted \emph{target} ($y=$ next return),
+which is legitimate---a purely syntactic tool cannot distinguish a leaked feature
+from a label. The sound core has no such false positive (cf.\ H2: \htwoN/\htwoN).
+The linter's misses and false alarms are precisely the argument for why the core,
+not the linter, carries the guarantee.
+
+\section{Related work}\label{sec:related}
+
+IFC and non-interference type systems---the lattice model
+\citep{denning1976lattice}, non-interference \citep{goguen1982security}, sound
+flow typing \citep{volpano1996sound}, the language-based survey
+\citep{sabelfeld2003language}, and dynamic enforcement via faceted values
+\citep{austin2012multiple} and secure multi-execution
+\citep{devriese2010noninterference}---all use secrecy labels, not time.
+Point-in-time / bitemporal data and feature stores \citep{feast}---data
+engineering, no language guarantee. Purged/embargoed CV
+\citep{lopezdeprado2018advances} and time-ordered evaluation
+\citep{bergmeir2012use}---methodology, recovered here as a typing constraint;
+survivorship bias has long been documented empirically
+\citep{brown1992survivorship}. Backtesting protocols
+\citep{arnott2019backtesting} prescribe discipline rather than enforce it.
+Temporal types \citep{bry2005catts,tc39temporal}---calendar representation, not
+availability.
+
+\section{Limitations and future work}\label{sec:limitations}
+
+\begin{itemize}\itemsep1pt
+  \item \emph{Mechanized proof.} The soundness proof is on paper plus the perturb
+    oracle; a Coq/Lean formalization is future work.
+  \item \emph{Control flow.} Eager evaluation does not model data-dependent
+    branching (host-language \texttt{if} on values escapes into an implicit
+    flow); a typed conditional that joins the guard's availability, or a static
+    front-end over a Python subset, would extend coverage soundly.
+  \item \emph{Trusted base.} \texttt{observe}/\texttt{available\_at} are believed,
+    not checked---publication-lag is caught only once the true lag is declared.
+    This is by design (the audited base) but must be stated.
+  \item \emph{Coverage.} The operator set covers the benchmark and case studies,
+    not all of pandas; the AST linter is unsound.
+  \item Intraday/event-time semantics, restatements/bitemporality, multi-source
+    clock skew, and IDE integration are open.
+\end{itemize}
+
+\section{Conclusion}\label{sec:conclusion}
+
+Treating availability time as an information-flow lattice turns look-ahead bias
+from a discipline problem into a type error, caught before any backtest runs, with
+a soundness guarantee. One property---temporal non-interference---unifies
+look-ahead bias, full-sample preprocessing, survivorship, and improper
+cross-validation. The prototype catches a \benchN-pattern benchmark in full on
+real markets where conventional tooling catches a third, while accepting realistic
+strategies with negligible annotation burden. Leakage, like memory safety, is
+better prevented by construction than by vigilance.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

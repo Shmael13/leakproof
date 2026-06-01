@@ -1,0 +1,23 @@
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lccccrr}
+\toprule
+Leakage pattern & \textsc{tni} & lint & unit & ASOF & Sharpe$^\dagger$ & honest \\
+\midrule
+close-to-open & \cmark & \xmark & \cmark & \xmark & $+15.84$ & $+0.43$ \\
+target-leakage & \cmark & \cmark & \cmark & \xmark & $+15.84$ & $+0.43$ \\
+full-sample-zscore & \cmark & \xmark & \xmark & \xmark & $+0.19$ & $+0.36$ \\
+centered-rolling & \cmark & \cmark & \xmark & \xmark & $+3.80$ & $+0.24$ \\
+winsorize-full-sample & \cmark & \xmark & \xmark & \xmark & $+0.43$ & $+0.42$ \\
+shuffled-kfold-cv & \cmark & \cmark & \xmark & \xmark & $+0.95$ & $+0.90$ \\
+resampling-lookahead & \cmark & \xmark & \xmark & \cmark & $+4.49$ & $+0.12$ \\
+global-feature-selection & \cmark & \xmark & \xmark & \xmark & $-0.07$ & $+0.06$ \\
+publication-lag & \cmark & \xmark & \xmark & \cmark & $+0.36$ & $+0.16$ \\
+panel-zscore & \cmark & \xmark & \xmark & \xmark & $-0.07$ & $+0.10$ \\
+survivorship-universe & \cmark & \xmark & \xmark & \cmark & $+1.04$ & $+0.83$ \\
+target-leakage-panel & \cmark & \cmark & \cmark & \xmark & $+32.37$ & $+0.10$ \\
+\bottomrule
+\end{tabular}
+\caption{Leakage benchmark on US equities (20 names, 2010--2023).}
+\label{tab:bench-eq}
+\end{table}
